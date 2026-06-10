@@ -39,14 +39,27 @@ int main() {
   // defined, but has to interface the rayParticle<NumericType> class and
   // provide the functions: initNew(...), surfaceCollision(...),
   // surfaceReflection(...).
+  // Sticking probability can be a single global value applied to every
+  // sphere, or a per-sphere vector (e.g. read from an external file). Here we
+  // build a per-sphere vector; replace this with values read from your input.
   NumericType stickingProbability = 0.1;
+  std::vector<NumericType> stickingProbabilities(points.size(),
+                                                 stickingProbability);
   auto particle = std::make_unique<DiffuseParticle<NumericType, D>>(
-      stickingProbability, "flux");
+      stickingProbabilities, "flux");
+  // For a single global value instead, use:
+  // auto particle = std::make_unique<DiffuseParticle<NumericType, D>>(
+  //     stickingProbability, "flux");
 
   TraceSphere<NumericType, D> rayTracer;
   rayTracer.setGeometry(points, gridDelta, std::sqrt(1 / (4 * M_PI)));
   rayTracer.setBoundaryConditions(boundaryConds);
   rayTracer.setParticleType(particle);
+
+  // Effective area for source normalization. By default each sphere uses the
+  // exposed hemisphere area 2*pi*r^2. To provide areas from an external source
+  // instead, call:
+  // rayTracer.setSphereAreas(externalAreas); // one value per sphere
 
   // Ray settings
   rayTracer.setNumberOfRaysPerPoint(2000);
@@ -66,9 +79,7 @@ int main() {
 
   auto sphereAreas = rayTracer.getSphereAreas();
 
-  rayInternal::writeVTK<NumericType, D>("trenchResult.vtk", points, flux);
-  rayInternal::writeVTK<NumericType, D>("trenchResultSphere.vtk", points,
-                                        sphereAreas);
+  rayInternal::writeVTK<NumericType, D>("trenchResult_TEST.vtk", points, flux);
 
   return 0;
 }

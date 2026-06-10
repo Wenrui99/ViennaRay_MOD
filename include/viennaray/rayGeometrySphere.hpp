@@ -192,29 +192,26 @@ public:
     }
   }
 
-  void computeSphereAreas(Boundary<NumericType, D> const &boundary) {
-    auto bdBox = this->getBoundingBox();
-    const auto boundaryConds = boundary.getBoundaryConditions();
-    const auto boundaryDirs = boundary.getDirs();
-    sphereAreas_.resize(this->numPrimitives_, 0);
-    const auto sphereArea = 4.0 * M_PI * sphereRadii_ * sphereRadii_;
+  /// Initialize the effective area used for source normalization.
+  /// By default every sphere uses the exposed hemisphere area 2*pi*r^2.
+  /// If the areas were provided externally via setSphereAreas(), they are
+  /// kept and this call is a no-op.
+  void initSphereAreas() {
+    if (sphereAreasSet_ && sphereAreas_.size() == this->numPrimitives_)
+      return;
 
-#pragma omp parallel for
-    for (long idx = 0; idx < this->numPrimitives_; ++idx) {
-      NumericType area = 4.0 * M_PI * sphereRadii_ * sphereRadii_;
-      auto const &point = getPoint(idx);
+    const NumericType defaultArea =
+        2.0 * M_PI * sphereRadii_ * sphereRadii_;
+    sphereAreas_.assign(this->numPrimitives_, defaultArea);
+    sphereAreasSet_ = false;
+  }
 
-      // intersect sphere with boundary box
-
-      for (const auto &id : getNeighborIndices(idx)) {
-        // intersect neighboring spheres
-        auto const &neighborPoint = getPoint(id);
-        NumericType distance = Distance(point, neighborPoint);
-        area -= sphereArea - visibleSphereArea(distance);
-      }
-
-      sphereAreas_[idx] = area;
-    }
+  /// Provide the effective area per sphere from an external source.
+  /// One value per primitive is expected; the values are used as-is for the
+  /// source normalization of the recorded flux.
+  void setSphereAreas(std::vector<NumericType> const &areas) {
+    sphereAreas_ = areas;
+    sphereAreasSet_ = true;
   }
 
   NumericType getSphereArea(const unsigned int primID) const {
@@ -225,38 +222,6 @@ public:
   auto const &getSphereAreas() const { return sphereAreas_; }
 
 private:
-  NumericType
-  visibleSphereAreaPlane(const Vec3D<NumericType> &C,
-                         const Vec3D<NumericType> &planePoint,
-                         const Vec3D<NumericType> &planeNormal) const {
-    // assume planeNormal is normalized
-    NumericType s = DotProduct(planeNormal, C - planePoint);
-
-    const NumericType full = 4.0 * M_PI * sphereRadii_ * sphereRadii_;
-
-    if (s >= sphereRadii_)
-      return full; // fully visible
-
-    if (s <= -sphereRadii_)
-      return 0.0; // fully hidden
-
-    // partial cut
-    return 2.0 * M_PI * sphereRadii_ * (sphereRadii_ + s);
-  }
-
-  NumericType visibleSphereArea(NumericType distance) const {
-    const NumericType full = 4.0 * M_PI * sphereRadii_ * sphereRadii_;
-
-    if (distance >= 2.0 * sphereRadii_)
-      return full; // no overlap
-
-    if (distance <= 0.0)
-      return 0.0; // identical spheres
-
-    // partial overlap
-    return 2.0 * M_PI * sphereRadii_ * (sphereRadii_ + 0.5 * distance);
-  }
-
   // RTC_GEOMETRY_TYPE_POINT:
   // The vertex buffer stores each control vertex in the form of a single
   // precision position and radius stored in (x, y, z, r) order in memory
@@ -269,6 +234,7 @@ private:
   point_4f_t *pPointBuffer_ = nullptr;
   NumericType sphereRadii_; // same for all points
   std::vector<NumericType> sphereAreas_;
+  bool sphereAreasSet_ = false; // true if areas were provided externally
   PointNeighborhood<NumericType, D> pointNeighborhood_;
 };
 

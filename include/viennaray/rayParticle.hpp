@@ -127,11 +127,25 @@ template <typename NumericType, int D>
 class DiffuseParticle
     : public Particle<DiffuseParticle<NumericType, D>, NumericType> {
   const NumericType stickingProbability_;
+  // Optional per-primitive sticking probabilities. If non-empty, the value at
+  // index primID is used; otherwise the global stickingProbability_ applies.
+  const std::vector<NumericType> stickingProbabilities_;
   const std::string dataLabel_;
 
 public:
+  /// Global uniform sticking probability for every surface point.
   DiffuseParticle(NumericType stickingProbability, std::string dataLabel)
       : stickingProbability_(stickingProbability),
+        dataLabel_(std::move(dataLabel)) {}
+
+  /// Per-primitive sticking probabilities (e.g. read from an external file).
+  /// The value at index primID is used for each hit; globalSticking is used as
+  /// a fallback for primitives outside the provided vector.
+  DiffuseParticle(std::vector<NumericType> stickingProbabilities,
+                  std::string dataLabel,
+                  NumericType globalSticking = NumericType(1))
+      : stickingProbability_(globalSticking),
+        stickingProbabilities_(std::move(stickingProbabilities)),
         dataLabel_(std::move(dataLabel)) {}
 
   std::pair<NumericType, Vec3D<NumericType>>
@@ -141,8 +155,10 @@ public:
                     const TracingData<NumericType> *globalData,
                     RNG &rngState) final {
     auto direction = ReflectionDiffuse<NumericType, D>(geomNormal, rngState);
-    return std::pair<NumericType, Vec3D<NumericType>>{stickingProbability_,
-                                                      direction};
+    const NumericType sticking = primID < stickingProbabilities_.size()
+                                     ? stickingProbabilities_[primID]
+                                     : stickingProbability_;
+    return std::pair<NumericType, Vec3D<NumericType>>{sticking, direction};
   }
 
   void surfaceCollision(NumericType rayWeight, const Vec3D<NumericType> &rayDir,
@@ -166,14 +182,28 @@ template <typename NumericType, int D>
 class SpecularParticle
     : public Particle<SpecularParticle<NumericType, D>, NumericType> {
   const NumericType stickingProbability_;
+  // Optional per-primitive sticking probabilities. If non-empty, the value at
+  // index primID is used; otherwise the global stickingProbability_ applies.
+  const std::vector<NumericType> stickingProbabilities_;
   const NumericType sourcePower_;
   const std::string dataLabel_;
 
 public:
+  /// Global uniform sticking probability for every surface point.
   SpecularParticle(NumericType stickingProbability, NumericType sourcePower,
                    std::string dataLabel)
       : stickingProbability_(stickingProbability), sourcePower_(sourcePower),
         dataLabel_(std::move(dataLabel)) {}
+
+  /// Per-primitive sticking probabilities (e.g. read from an external file).
+  /// The value at index primID is used for each hit; globalSticking is used as
+  /// a fallback for primitives outside the provided vector.
+  SpecularParticle(std::vector<NumericType> stickingProbabilities,
+                   NumericType sourcePower, std::string dataLabel,
+                   NumericType globalSticking = NumericType(1))
+      : stickingProbability_(globalSticking),
+        stickingProbabilities_(std::move(stickingProbabilities)),
+        sourcePower_(sourcePower), dataLabel_(std::move(dataLabel)) {}
 
   std::pair<NumericType, Vec3D<NumericType>>
   surfaceReflection(NumericType rayWeight, const Vec3D<NumericType> &rayDir,
@@ -182,8 +212,10 @@ public:
                     const TracingData<NumericType> *globalData,
                     RNG &rngState) final {
     auto direction = ReflectionSpecular<NumericType, D>(rayDir, geomNormal);
-    return std::pair<NumericType, Vec3D<NumericType>>{stickingProbability_,
-                                                      direction};
+    const NumericType sticking = primID < stickingProbabilities_.size()
+                                     ? stickingProbabilities_[primID]
+                                     : stickingProbability_;
+    return std::pair<NumericType, Vec3D<NumericType>>{sticking, direction};
   }
 
   void surfaceCollision(NumericType rayWeight, const Vec3D<NumericType> &rayDir,

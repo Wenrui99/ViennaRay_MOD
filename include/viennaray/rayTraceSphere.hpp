@@ -23,9 +23,22 @@ public:
         boundingBox, this->sourceDirection_, this->sphereRadius_);
     auto traceSettings = rayInternal::getTraceSettings(this->sourceDirection_);
 
+    // Expand the box in the lateral (boundary)
+    // directions by the sphere radius so that all spheres are fully enclosed.
+    const int firstDir = traceSettings[1];
+    boundingBox[0][firstDir] -= this->sphereRadius_;
+    boundingBox[1][firstDir] += this->sphereRadius_;
+    if constexpr (D == 3) {
+      const int secondDir = traceSettings[2];
+      boundingBox[0][secondDir] -= this->sphereRadius_;
+      boundingBox[1][secondDir] += this->sphereRadius_;
+    }
+
     auto boundary = Boundary<NumericType, D>(
         this->device_, boundingBox, this->boundaryConditions_, traceSettings);
-    geometry_.computeSphereAreas(boundary);
+    // Effective area used for source normalization. Defaults to the exposed
+    // hemisphere area 2*pi*r^2 unless areas were provided via setSphereAreas().
+    geometry_.initSphereAreas();
 
     std::array<Vec3D<NumericType>, 3> orthonormalBasis;
     if (this->usePrimaryDirection_)
@@ -96,6 +109,13 @@ public:
   }
 
   auto const &getSphereAreas() const { return geometry_.getSphereAreas(); }
+
+  /// Provide the effective area per sphere used for source normalization.
+  /// Expects one value per geometry point. If not set, each sphere defaults
+  /// to the exposed hemisphere area 2*pi*r^2.
+  void setSphereAreas(std::vector<NumericType> const &areas) {
+    geometry_.setSphereAreas(areas);
+  }
 
   /// Helper function to normalize the recorded flux in a post-processing step.
   /// The flux can be normalized to the source flux and the maximum recorded
