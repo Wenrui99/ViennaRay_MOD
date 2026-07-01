@@ -5,6 +5,8 @@
 
 #include <omp.h>
 
+#include <vector>
+
 using namespace viennaray;
 
 int main() {
@@ -23,10 +25,36 @@ int main() {
   TraceTriangle<NumericType, D> tracer;
   tracer.setGeometry(mesh);
 
-  NumericType stickingProbability = 0.1;
-  auto particle = std::make_unique<DiffuseParticle<NumericType, D>>(
-      stickingProbability, "flux");
+  // ==========================================================================
+  // Mode 1: global sticking probability (original behaviour).
+  // Every triangle uses the same sticking probability.
+  // --------------------------------------------------------------------------
+  // NumericType stickingProbability = 0.1;
+  // auto particle = std::make_unique<DiffuseParticle<NumericType, D>>(
+  //     stickingProbability, "flux");
+  // tracer.setParticleType(particle);
+  // // ==========================================================================
+
+  // ==========================================================================
+  // Mode 2: per-triangle sticking probability.
+  // The sticking probability is looked up by triangle ID (primID).
+  // --------------------------------------------------------------------------
+  NumericType defaultStickingProbability = 0.1;
+  // stickingProbabilities[i] is the sticking probability of triangle i.
+  std::vector<NumericType> stickingProbabilities(triangles.size(),
+                                                 defaultStickingProbability);
+  // --- placeholder values for testing ---
+  for (size_t i = 0; i < triangles.size(); ++i) {
+    // e.g. give the first half and second half different sticking values.
+    stickingProbabilities[i] = (i < triangles.size() / 2) ? 0.05 : 0.5;
+  }
+  // --------------------------------------
+  auto particle =
+      std::make_unique<DiffuseParticleMultiSticking<NumericType, D>>(
+          stickingProbabilities, "flux", defaultStickingProbability);
   tracer.setParticleType(particle);
+  // ==========================================================================
+
   tracer.setNumberOfRaysPerPoint(2000);
 
   Timer timer;
@@ -39,6 +67,6 @@ int main() {
   auto flux = *tracer.getLocalData().getScalarData("flux");
   tracer.normalizeFlux(flux, NormalizationType::SOURCE);
 
-  rayInternal::writeVTP<NumericType, D>("triangleGeometryOutput.vtp", points,
+  rayInternal::writeVTP<NumericType, D>("triangleGeometryOutput_test.vtp", points,
                                         triangles, flux);
 }

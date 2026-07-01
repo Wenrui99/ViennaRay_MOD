@@ -164,6 +164,60 @@ public:
   }
 };
 
+/// Diffuse particle whose sticking probability can differ per surface element
+template <typename NumericType, int D>
+class DiffuseParticleMultiSticking
+    : public Particle<DiffuseParticleMultiSticking<NumericType, D>,
+                      NumericType> {
+  const std::vector<NumericType> stickingProbabilities_;
+  const NumericType defaultStickingProbability_;
+  const std::string dataLabel_;
+
+public:
+  /// stickingProbabilities: sticking probability for each primitive, indexed by
+  /// primID (e.g. the triangle ID).
+  /// dataLabel: label of the recorded flux data.
+  /// defaultStickingProbability: fallback value used when a primID is not
+  /// contained in the stickingProbabilities vector.
+  DiffuseParticleMultiSticking(
+      std::vector<NumericType> stickingProbabilities, std::string dataLabel,
+      NumericType defaultStickingProbability = NumericType(1))
+      : stickingProbabilities_(std::move(stickingProbabilities)),
+        defaultStickingProbability_(defaultStickingProbability),
+        dataLabel_(std::move(dataLabel)) {}
+
+  std::pair<NumericType, Vec3D<NumericType>>
+  surfaceReflection(NumericType rayWeight, const Vec3D<NumericType> &rayDir,
+                    const Vec3D<NumericType> &geomNormal,
+                    const unsigned int primID, const int materialId,
+                    const PointData<NumericType> *globalData,
+                    RNG &rngState) final {
+    auto direction = ReflectionDiffuse<NumericType, D>(geomNormal, rngState);
+    const NumericType stickingProbability =
+        primID < stickingProbabilities_.size()
+            ? stickingProbabilities_[primID]
+            : defaultStickingProbability_;
+    return std::pair<NumericType, Vec3D<NumericType>>{stickingProbability,
+                                                      direction};
+  }
+
+  void surfaceCollision(NumericType rayWeight, const Vec3D<NumericType> &rayDir,
+                        const Vec3D<NumericType> &geomNormal,
+                        const unsigned int primID, const int materialId,
+                        PointData<NumericType> &localData,
+                        const PointData<NumericType> *globalData,
+                        RNG &rngState) final {
+    // collect data for this hit
+    localData.addToScalarData(0, primID, rayWeight);
+  }
+
+  NumericType getSourceDistributionPower() const final { return 1.; }
+
+  [[nodiscard]] std::vector<std::string> getLocalDataLabels() const final {
+    return {dataLabel_};
+  }
+};
+
 template <typename NumericType, int D>
 class SpecularParticle
     : public Particle<SpecularParticle<NumericType, D>, NumericType> {
