@@ -126,6 +126,7 @@ public:
         Vec3D<NumericType> rayDirection;
         unsigned int numReflections = 0;
         unsigned int boundaryHits = 0;
+        [[maybe_unused]] unsigned int numPassThroughs = 0;
 
         {
           particle->initNew(rngState);
@@ -218,7 +219,17 @@ public:
           const auto hitPoint = Vec3Df{ray.org_x + ray.dir_x * ray.tfar,
                                        ray.org_y + ray.dir_y * ray.tfar,
                                        ray.org_z + ray.dir_z * ray.tfar};
-          const auto geomNormal = geometry_.getPrimNormal(rayHit.hit.primID);
+          auto geomNormal = geometry_.getPrimNormal(rayHit.hit.primID);
+          if constexpr (geoType == GeometryType::SPHERE) {
+            // A sphere has no single normal: derive it from the point of
+            // impact and the sphere center (x, y, z, radius).
+            auto const &sphere = geometry_.getPrimRef(rayHit.hit.primID);
+            geomNormal = Vec3D<NumericType>{
+                static_cast<NumericType>(hitPoint[0] - sphere[0]),
+                static_cast<NumericType>(hitPoint[1] - sphere[1]),
+                static_cast<NumericType>(hitPoint[2] - sphere[2])};
+            Normalize(geomNormal);
+          }
 
           // Check for backface hit
           const auto backfaceHit = DotProduct(rayDirection, geomNormal) > 0;
@@ -234,6 +245,24 @@ public:
               }
               hitFromBack = true;
               // Let ray through, i.e., continue.
+              reflect = true;
+              fillRayPosition(rayHit.ray, hitPoint);
+              // keep ray direction as it is
+              continue;
+            }
+          } else if constexpr (geoType == GeometryType::SPHERE) {
+            if (backfaceHit) {
+              // The ray leaves a sphere from the inside. For solid spheres
+              // that is not a surface hit but a numerical artifact: the origin
+              // of a reflected ray lies exactly on a sphere surface and can
+              // end up a fraction of an ulp inside that sphere, or inside a
+              // sphere overlapping it. Let the ray pass through without
+              // depositing any weight. Reflecting instead (on the flipped
+              // normal) would trap the ray inside the sphere.
+              if (++numPassThroughs > maxSpherePassThroughs) {
+                ++raysTerminated;
+                break;
+              }
               reflect = true;
               fillRayPosition(rayHit.ray, hitPoint);
               // keep ray direction as it is
@@ -299,7 +328,10 @@ public:
                                          pGlobalData_, rngState);
             }
           } else {
-            // Triangle Geometry - single hit
+            // Triangle and sphere geometries - single hit. Unlike the
+            // infinitely thin disks, both primitives are opaque, so the point
+            // of impact belongs to exactly one of them and the ray weight must
+            // not be spread over the neighborhood.
             particle->surfaceCollision(
                 rayWeight, rayDirection, geomNormal, rayHit.hit.primID,
                 geometry_.getMaterialId(rayHit.hit.primID), myLocalData,
@@ -377,6 +409,10 @@ public:
   }
 
 private:
+  // Upper bound for how often a ray may leave a sphere from the inside before
+  // it is discarded; see the SPHERE branch above.
+  static constexpr unsigned maxSpherePassThroughs = 32;
+
   static bool rejectionControl(NumericType &rayWeight,
                                const NumericType &initWeight, RNG &rng) {
     // Choosing a good value for the weight lower threshold is important
